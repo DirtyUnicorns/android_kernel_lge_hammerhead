@@ -458,7 +458,6 @@ int second_overflow(unsigned long secs)
 		}
 		break;
 	case TIME_OOP:
-		ntp_next_leap_sec = KTIME_MAX;
 		time_state = TIME_WAIT;
 		break;
 
