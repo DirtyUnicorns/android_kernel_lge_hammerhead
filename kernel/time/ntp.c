@@ -435,10 +435,9 @@ int second_overflow(unsigned long secs)
 		}
 		break;
 	case TIME_INS:
-		if (!(time_status & STA_INS)) {
-			ntp_next_leap_sec = KTIME_MAX;
+		if (!(time_status & STA_INS))
 			time_state = TIME_OK;
-		} else if (secs % SECS_PER_DAY == 0) {
+		else if (secs % 86400 == 0) {
 			leap = -1;
 			time_state = TIME_OOP;
 			time_tai++;
@@ -447,10 +446,9 @@ int second_overflow(unsigned long secs)
 		}
 		break;
 	case TIME_DEL:
-		if (!(time_status & STA_DEL)) {
-			ntp_next_leap_sec = KTIME_MAX;
+		if (!(time_status & STA_DEL))
 			time_state = TIME_OK;
-		} else if ((secs + 1) % SECS_PER_DAY == 0) {
+		else if ((secs + 1) % 86400 == 0) {
 			leap = 1;
 			ntp_next_leap_sec = KTIME_MAX;
 			time_tai--;
