@@ -1378,16 +1378,10 @@ ktime_t ktime_get_update_offsets(ktime_t *offs_real, ktime_t *offs_boot)
 
 		*offs_real = timekeeper.offs_real;
 		*offs_boot = timekeeper.offs_boot;
-
-		now = ktime_add_ns(ktime_set(secs, 0), nsecs);
-		now = ktime_sub(now, *offs_real);
-
-		/* Handle leapsecond insertion adjustments */
-		if (unlikely(now.tv64 >= timekeeper.next_leap_ktime.tv64))
-			*offs_real = ktime_sub(timekeeper.offs_real, ktime_set(1, 0));
-
 	} while (read_seqretry(&timekeeper.lock, seq));
 
+	now = ktime_add_ns(ktime_set(secs, 0), nsecs);
+	now = ktime_sub(now, *offs_real);
 	return now;
 }
 #endif
