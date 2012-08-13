@@ -1,12 +1,12 @@
 /*
  *  lzodefs.h -- architecture, OS and compiler specific defines
  *
- *  Copyright (C) 1996-2005 Markus F.X.J. Oberhumer <markus@oberhumer.com>
+ *  Copyright (C) 1996-2012 Markus F.X.J. Oberhumer <markus@oberhumer.com>
  *
  *  The full LZO package can be found at:
  *  http://www.oberhumer.com/opensource/lzo/
  *
- *  Changed for kernel use by:
+ *  Changed for Linux kernel use by:
  *  Nitin Gupta <nitingupta910@gmail.com>
  *  Richard Purdie <rpurdie@openedhand.com>
  */
@@ -19,6 +19,7 @@
 #define COPY4(dst, src)	\
 		put_unaligned(get_unaligned((const u32 *)(src)), (u32 *)(dst))
 #endif
+
 #if defined(__x86_64__)
 #define COPY8(dst, src)	\
 		put_unaligned(get_unaligned((const u64 *)(src)), (u64 *)(dst))
@@ -57,10 +58,8 @@
 #define M3_MARKER	32
 #define M4_MARKER	16
 
-#define D_BITS		14
-#define D_MASK		((1u << D_BITS) - 1)
+#define lzo_dict_t      unsigned short
+#define D_BITS		13
+#define D_SIZE		(1u << D_BITS)
+#define D_MASK		(D_SIZE - 1)
 #define D_HIGH		((D_MASK >> 1) + 1)
-
-#define DX2(p, s1, s2)	(((((size_t)((p)[2]) << (s2)) ^ (p)[1]) \
-							<< (s1)) ^ (p)[0])
-#define DX3(p, s1, s2, s3)	((DX2((p)+1, s2, s3) << (s1)) ^ (p)[0])
