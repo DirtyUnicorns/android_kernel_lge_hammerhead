@@ -129,6 +129,11 @@ static struct debug_reg lm3630_debug_regs[] = {
 	LM3630_DEBUG_REG(REVISION),
 };
 
+static unsigned int gamma_correction = 0;
+module_param(gamma_correction, uint, 0664);
+static unsigned int cur_level;
+module_param(cur_level, uint, 0664);
+
 static void lm3630_hw_reset(struct lm3630_device *dev)
 {
 	if (gpio_is_valid(dev->en_gpio)) {
@@ -209,6 +214,35 @@ static void lm3630_set_brightness_reg(struct lm3630_device *dev, int level)
 
 static void lm3630_set_main_current_level(struct i2c_client *client, int level)
 {
+	int badj, b;
+	int gma_22[255] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
+			    2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5,
+			    5, 6, 6, 6, 6, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11,
+			    12, 12, 12, 13, 13, 14, 14, 15, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20,
+			    21, 22, 22, 23, 23, 24, 24, 25, 26, 26, 27, 28, 28, 29, 30, 30, 31, 32, 32, 33,
+			    34, 34, 35, 36, 37, 37, 38, 39, 40, 40, 41, 42, 43, 44, 45, 45, 46, 47, 48, 49,
+			    50, 51, 52, 53, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68,
+			    69, 71, 72, 73, 74, 75, 76, 77, 78, 80, 81, 82, 83, 84, 85, 87, 88, 89, 90, 92,
+			    93, 94, 95, 97, 98, 99, 101, 102, 103, 105, 106, 107, 109, 110, 112, 113, 114, 116, 117, 119,
+			    120, 122, 123, 124, 126, 127, 129, 130, 132, 134, 135, 137, 138, 140, 141, 143, 145, 146, 148, 149,
+			    151, 153, 154, 156, 158, 160, 161, 163, 165, 166, 168, 170, 172, 173, 175, 177, 179, 181, 182, 184,
+			    186, 188, 190, 192, 194, 196, 197, 199, 201, 203, 205, 207, 209, 211, 213, 215, 217, 219, 221, 223,
+			    225, 227, 229, 231, 234, 236, 238, 240, 242, 244, 246, 248, 251, 253, 255 };
+
+	int gma_30[255] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+			    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2,
+			    2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4,
+			    4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9,
+			    9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
+			    17, 17, 17, 18, 18, 19, 19, 20, 21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 26, 27,
+			    28, 28, 29, 30, 31, 31, 32, 33, 34, 34, 35, 36, 37, 37, 38, 39, 40, 41, 42, 43,
+			    44, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63,
+			    64, 66, 67, 68, 69, 71, 72, 73, 74, 76, 77, 79, 80, 81, 83, 84, 86, 87, 88, 90,
+			    91, 93, 94, 96, 98, 99, 101, 102, 104, 106, 107, 109, 111, 112, 114, 116, 118, 120, 121, 123,
+			    125, 127, 129, 131, 133, 135, 136, 138, 140, 143, 145, 147, 149, 151, 153, 155, 157, 159, 162, 164,
+			    166, 168, 171, 173, 175, 178, 180, 182, 185, 187, 190, 192, 195, 197, 200, 202, 205, 207, 210, 213,
+			    215, 218, 221, 223, 226, 229, 232, 235, 237, 240, 243, 246, 249, 252, 255 };
+
 	struct lm3630_device *dev = i2c_get_clientdata(client);
 
 	mutex_lock(&backlight_mtx);
@@ -219,15 +253,50 @@ static void lm3630_set_main_current_level(struct i2c_client *client, int level)
 		else if (level > dev->max_brightness)
 			level = dev->max_brightness;
 
-		if (dev->blmap) {
-			if (level < dev->blmap_size)
-				lm3630_set_brightness_reg(dev, dev->blmap[level]);
-			else
-				pr_err("%s: invalid index %d:%d\n", __func__,
-						dev->blmap_size, level);
-		} else {
-			lm3630_set_brightness_reg(dev, level);
+		if (gamma_correction == 0) {
+			if (dev->blmap) {
+				if (level < dev->blmap_size)
+					lm3630_set_brightness_reg(dev, dev->blmap[level]);
+				else
+					pr_err("%s: invalid index %d:%d\n", __func__,
+							dev->blmap_size, level);
+			} else
+				lm3630_set_brightness_reg(dev, level);
 		}
+
+		if ((gamma_correction == 1) && (level > 0) && (level < 256)) {
+			b = level;
+			badj = ((((b-1)*(b-1))/254)+1); // AKA gma_20
+			if (badj < 1)
+				badj = 1;
+			if (badj > 255)
+				badj = 255;
+			cur_level = badj;
+			lm3630_set_brightness_reg(dev, badj);
+		}
+
+		if ((gamma_correction == 2) && (level > 0) && (level < 256)) {
+			b = level;
+			badj = gma_22[b-1];
+			if (badj < 1)
+				badj = 1;
+			if (badj > 255)
+				badj = 255;
+			cur_level = badj;
+			lm3630_set_brightness_reg(dev, badj);
+		}
+
+		if ((gamma_correction == 3) && (level > 0) && (level < 256)) {
+			b = level;
+			badj = gma_30[b-1];
+			if (badj < 1)
+				badj = 1;
+			if (badj > 255)
+				badj = 255;
+			cur_level = badj;
+			lm3630_set_brightness_reg(dev, badj);
+		}
+
 	} else {
 		lm3630_write_reg(client, CONTROL_REG, BL_OFF);
 	}
