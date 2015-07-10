@@ -24,6 +24,7 @@
 #include "policydb.h"
 
 static struct kmem_cache *avtab_node_cachep;
+static struct kmem_cache *avtab_xperms_cachep;
 
 static inline int avtab_hash(struct avtab_key *keyp, u16 mask)
 {
@@ -37,11 +38,24 @@ avtab_insert_node(struct avtab *h, int hvalue,
 		  struct avtab_key *key, struct avtab_datum *datum)
 {
 	struct avtab_node *newnode;
+	struct avtab_extended_perms *xperms;
 	newnode = kmem_cache_zalloc(avtab_node_cachep, GFP_KERNEL);
 	if (newnode == NULL)
 		return NULL;
 	newnode->key = *key;
-	newnode->datum = *datum;
+
+	if (key->specified & AVTAB_XPERMS) {
+		xperms = kmem_cache_zalloc(avtab_xperms_cachep, GFP_KERNEL);
+		if (xperms == NULL) {
+			kmem_cache_free(avtab_node_cachep, newnode);
+			return NULL;
+		}
+		*xperms = *(datum->u.xperms);
+		newnode->datum.u.xperms = xperms;
+	} else {
+		newnode->datum.u.data = datum->u.data;
+	}
+
 	if (prev) {
 		newnode->next = prev->next;
 		prev->next = newnode;
@@ -70,8 +84,12 @@ static int avtab_insert(struct avtab *h, struct avtab_key *key, struct avtab_dat
 		if (key->source_type == cur->key.source_type &&
 		    key->target_type == cur->key.target_type &&
 		    key->target_class == cur->key.target_class &&
-		    (specified & cur->key.specified))
+		    (specified & cur->key.specified)) {
+			/* extended perms may not be unique */
+			if (specified & AVTAB_XPERMS)
+				break;
 			return -EEXIST;
+		}
 		if (key->source_type < cur->key.source_type)
 			break;
 		if (key->source_type == cur->key.source_type &&
@@ -232,6 +250,9 @@ void avtab_destroy(struct avtab *h)
 		while (cur) {
 			temp = cur;
 			cur = cur->next;
+			if (temp->key.specified & AVTAB_XPERMS)
+				kmem_cache_free(avtab_xperms_cachep,
+						temp->datum.u.xperms);
 			kmem_cache_free(avtab_node_cachep, temp);
 		}
 		h->htable[i] = NULL;
@@ -346,7 +367,10 @@ static uint16_t spec_order[] = {
 	AVTAB_AUDITALLOW,
 	AVTAB_TRANSITION,
 	AVTAB_CHANGE,
-	AVTAB_MEMBER
+	AVTAB_MEMBER,
+	AVTAB_XPERMS_ALLOWED,
+	AVTAB_XPERMS_AUDITALLOW,
+	AVTAB_XPERMS_DONTAUDIT
 };
 
 int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
@@ -356,10 +380,12 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 {
 	__le16 buf16[4];
 	u16 enabled;
-	__le32 buf32[7];
 	u32 items, items2, val, vers = pol->policyvers;
 	struct avtab_key key;
 	struct avtab_datum datum;
+	struct avtab_extended_perms xperms;
+	__le32 buf32[ARRAY_SIZE(xperms.perms.p)];
+	unsigned int android_m_compat_optype = 0;
 	int i, rc;
 	unsigned set;
 
@@ -416,11 +442,15 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 			printk(KERN_ERR "SELinux: avtab: entry has both access vectors and types\n");
 			return -EINVAL;
 		}
+		if (val & AVTAB_XPERMS) {
+			printk(KERN_ERR "SELinux: avtab: entry has extended permissions\n");
+			return -EINVAL;
+		}
 
 		for (i = 0; i < ARRAY_SIZE(spec_order); i++) {
 			if (val & spec_order[i]) {
 				key.specified = spec_order[i] | enabled;
-				datum.data = le32_to_cpu(buf32[items++]);
+				datum.u.data = le32_to_cpu(buf32[items++]);
 				rc = insertf(a, &key, &datum, p);
 				if (rc)
 					return rc;
@@ -470,12 +500,6 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 		return -EINVAL;
 	}
 
-<<<<<<< HEAD
-	rc = next_entry(buf32, fp, sizeof(u32));
-	if (rc) {
-		printk(KERN_ERR "SELinux: avtab: truncated entry\n");
-		return rc;
-=======
 	if ((vers < POLICYDB_VERSION_XPERMS_IOCTL) &&
 			(key.specified & AVTAB_XPERMS)) {
 		printk(KERN_ERR "SELinux:  avtab:  policy version %u does not "
@@ -521,11 +545,9 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 			return rc;
 		}
 		datum.u.data = le32_to_cpu(*buf32);
->>>>>>> ee37090... selinux: Android kernel compatibility with M userspace
 	}
-	datum.data = le32_to_cpu(*buf32);
 	if ((key.specified & AVTAB_TYPE) &&
-	    !policydb_type_isvalid(pol, datum.data)) {
+	    !policydb_type_isvalid(pol, datum.u.data)) {
 		printk(KERN_ERR "SELinux: avtab: invalid type\n");
 		return -EINVAL;
 	}
@@ -585,8 +607,9 @@ bad:
 int avtab_write_item(struct policydb *p, struct avtab_node *cur, void *fp)
 {
 	__le16 buf16[4];
-	__le32 buf32[1];
+	__le32 buf32[ARRAY_SIZE(cur->datum.u.xperms->perms.p)];
 	int rc;
+	unsigned int i;
 
 	buf16[0] = cpu_to_le16(cur->key.source_type);
 	buf16[1] = cpu_to_le16(cur->key.target_type);
@@ -599,18 +622,11 @@ int avtab_write_item(struct policydb *p, struct avtab_node *cur, void *fp)
 	rc = put_entry(buf16, sizeof(u16), 4, fp);
 	if (rc)
 		return rc;
-<<<<<<< HEAD
-	buf32[0] = cpu_to_le32(cur->datum.data);
-	rc = put_entry(buf32, sizeof(u32), 1, fp);
-=======
 
 	if (cur->key.specified & AVTAB_XPERMS) {
-		if (avtab_android_m_compat == 0) {
-			rc = put_entry(&cur->datum.u.xperms->specified,
-					sizeof(u8), 1, fp);
-			if (rc)
-				return rc;
-		}
+		rc = put_entry(&cur->datum.u.xperms->specified, sizeof(u8), 1, fp);
+		if (rc)
+			return rc;
 		rc = put_entry(&cur->datum.u.xperms->driver, sizeof(u8), 1, fp);
 		if (rc)
 			return rc;
@@ -622,7 +638,6 @@ int avtab_write_item(struct policydb *p, struct avtab_node *cur, void *fp)
 		buf32[0] = cpu_to_le32(cur->datum.u.data);
 		rc = put_entry(buf32, sizeof(u32), 1, fp);
 	}
->>>>>>> ee37090... selinux: Android kernel compatibility with M userspace
 	if (rc)
 		return rc;
 	return 0;
@@ -655,9 +670,13 @@ void avtab_cache_init(void)
 	avtab_node_cachep = kmem_cache_create("avtab_node",
 					      sizeof(struct avtab_node),
 					      0, SLAB_PANIC, NULL);
+	avtab_xperms_cachep = kmem_cache_create("avtab_extended_perms",
+						sizeof(struct avtab_extended_perms),
+						0, SLAB_PANIC, NULL);
 }
 
 void avtab_cache_destroy(void)
 {
 	kmem_cache_destroy(avtab_node_cachep);
+	kmem_cache_destroy(avtab_xperms_cachep);
 }

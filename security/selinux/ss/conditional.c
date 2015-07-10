@@ -15,6 +15,7 @@
 
 #include "security.h"
 #include "conditional.h"
+#include "services.h"
 
 /*
  * cond_evaluate_expr evaluates a conditional expr
@@ -617,6 +618,23 @@ int cond_write_list(struct policydb *p, struct cond_node *list, void *fp)
 
 	return 0;
 }
+
+void cond_compute_xperms(struct avtab *ctab, struct avtab_key *key,
+		struct extended_perms_decision *xpermd)
+{
+	struct avtab_node *node;
+
+	if (!ctab || !key || !xpermd)
+		return;
+
+	for (node = avtab_search_node(ctab, key); node;
+			node = avtab_search_node_next(node, key->specified)) {
+		if (node->key.specified & AVTAB_ENABLED)
+			services_compute_xperms_decision(xpermd, node);
+	}
+	return;
+
+}
 /* Determine whether additional permissions are granted by the conditional
  * av table, and if so, add them to the result
  */
@@ -625,7 +643,7 @@ void cond_compute_av(struct avtab *ctab, struct avtab_key *key,
 {
 	struct avtab_node *node;
 
-	if (!ctab || !key || !avd)
+	if (!ctab || !key || !avd || !xperms)
 		return;
 
 	for (node = avtab_search_node(ctab, key); node;
