@@ -437,3 +437,4 @@ obj-$(CONFIG_WALL_CLK_SYSFS) += wallclk_sysfs.o
 
 obj-$(CONFIG_HAS_MACH_MEMUTILS) += memutils/
 
+obj-$(CONFIG_FORCE_FAST_CHARGE) += fastchg.o
