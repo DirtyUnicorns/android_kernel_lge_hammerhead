@@ -1373,3 +1373,4 @@ static int __init mdss_dsi_panel_init(void)
 	return platform_driver_register(&this_driver);
 }
 module_init(mdss_dsi_panel_init);
+
