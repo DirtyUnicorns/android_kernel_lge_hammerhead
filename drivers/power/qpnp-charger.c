@@ -2015,7 +2015,6 @@ qpnp_chg_adjust_vddmax(struct qpnp_chg_chip *chip, int vbat_mv)
 }
 
 #define CONSECUTIVE_COUNT	10
-#define VBATDET_MAX_ERR_MV	50
 static void
 qpnp_eoc_work(struct work_struct *work)
 {
